@@ -4,19 +4,31 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node app.js",
-    "dev": "nodemon app.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "init-db": "node init_database.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.15.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dandanlaoyaojing/bunnies-dreamworld-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dandanlaoyaojing/bunnies-dreamworld-backend/issues"
+  },
+  "homepage": "https://github.com/Dandanlaoyaojing/bunnies-dreamworld-backend#readme"
 }
