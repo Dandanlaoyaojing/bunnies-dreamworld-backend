@@ -35,5 +35,15 @@ router.post('/verify-token',
   authController.verifyTokenValidity
 );
 
+// 微信登录（不需要认证）
+router.post('/wechat-login',
+  authController.wechatLogin
+);
+
+// QQ登录（不需要认证）
+router.post('/qq-login',
+  authController.qqLogin
+);
+
 module.exports = router;
 

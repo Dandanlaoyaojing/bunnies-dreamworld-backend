@@ -15,11 +15,11 @@ async function register(req, res) {
     
     // 验证输入
     if (!validateUsername(username)) {
-      return error(res, '用户名格式不正确（4-20位字母数字下划线）');
+      return error(res, '用户名格式不正确（2-50个字符）');
     }
     
     if (!validatePassword(password)) {
-      return error(res, '密码长度必须在6-20位之间');
+      return error(res, '密码长度必须在6-50位之间');
     }
     
     // 检查用户名是否已存在
@@ -211,11 +211,165 @@ async function verifyTokenValidity(req, res) {
   }
 }
 
+/**
+ * 微信登录
+ * POST /api/v1/auth/wechat-login
+ */
+async function wechatLogin(req, res) {
+  try {
+    const { code, userInfo } = req.body;
+    
+    if (!code) {
+      return error(res, '缺少微信登录code');
+    }
+    
+    // 注意：实际生产环境需要调用微信API换取openid
+    // 这里简化处理，直接使用code作为openid（仅用于开发测试）
+    // 生产环境需要：
+    // const wxResult = await axios.get(`https://api.weixin.qq.com/sns/jscode2session?appid=${APPID}&secret=${SECRET}&js_code=${code}&grant_type=authorization_code`)
+    // const openid = wxResult.data.openid
+    
+    const openid = `wx_${code}`; // 开发环境模拟
+    
+    // 查询是否已存在该openid的用户
+    const [existingUsers] = await pool.query(
+      'SELECT id, username, nickname, avatar, openid FROM users WHERE openid = ?',
+      [openid]
+    );
+    
+    let userId;
+    let username;
+    let nickname;
+    let avatar;
+    
+    if (existingUsers.length > 0) {
+      // 用户已存在，直接登录
+      const user = existingUsers[0];
+      userId = user.id;
+      username = user.username;
+      nickname = user.nickname;
+      avatar = user.avatar;
+      
+      console.log('微信用户登录:', userId, nickname);
+      
+      // 更新最后登录时间
+      await pool.query(
+        'UPDATE users SET last_login_at = NOW() WHERE id = ?',
+        [userId]
+      );
+    } else {
+      // 新用户，自动注册
+      nickname = userInfo?.nickName || `微信用户${Date.now().toString().slice(-6)}`;
+      avatar = userInfo?.avatarUrl || '';
+      username = `wx_${Date.now().toString().slice(-8)}`; // 自动生成用户名
+      
+      const [result] = await pool.query(
+        `INSERT INTO users (username, openid, nickname, avatar, wechat_nickname, wechat_avatar, login_type, status, password) 
+         VALUES (?, ?, ?, ?, ?, ?, 'wechat', 'active', '')`,
+        [username, openid, nickname, avatar, nickname, avatar]
+      );
+      
+      userId = result.insertId;
+      console.log('新微信用户注册:', userId, nickname);
+    }
+    
+    // 生成token
+    const token = generateToken({ id: userId, username: username || `user_${userId}` });
+    
+    // 记录操作日志
+    await pool.query(
+      'INSERT INTO operation_logs (user_id, action, resource_type, details) VALUES (?, ?, ?, ?)',
+      [userId, 'wechat_login', 'user', JSON.stringify({ openid, nickname })]
+    );
+    
+    return success(res, {
+      user: {
+        id: userId,
+        username: username,
+        nickname: nickname,
+        avatar: avatar,
+        openid: openid,
+        isNewUser: existingUsers.length === 0
+      },
+      token
+    }, existingUsers.length === 0 ? '注册成功' : '登录成功');
+    
+  } catch (err) {
+    console.error('微信登录失败:', err);
+    return error(res, '微信登录失败', 500);
+  }
+}
+
+/**
+ * QQ登录
+ * POST /api/v1/auth/qq-login
+ */
+async function qqLogin(req, res) {
+  try {
+    const { qqOpenid, userInfo } = req.body;
+    
+    if (!qqOpenid) {
+      return error(res, '缺少QQ登录凭证');
+    }
+    
+    // 查询是否已存在该qq_openid的用户
+    const [existingUsers] = await pool.query(
+      'SELECT id, username, nickname, avatar FROM users WHERE qq_openid = ?',
+      [qqOpenid]
+    );
+    
+    let userId;
+    let username;
+    let nickname;
+    let avatar;
+    
+    if (existingUsers.length > 0) {
+      // 用户已存在
+      const user = existingUsers[0];
+      userId = user.id;
+      username = user.username;
+      nickname = user.nickname;
+      avatar = user.avatar;
+      
+      await pool.query(
+        'UPDATE users SET last_login_at = NOW() WHERE id = ?',
+        [userId]
+      );
+    } else {
+      // 新用户，自动注册
+      nickname = userInfo?.nickName || `QQ用户${Date.now().toString().slice(-6)}`;
+      avatar = userInfo?.avatarUrl || '';
+      username = `qq_${Date.now().toString().slice(-8)}`;
+      
+      const [result] = await pool.query(
+        `INSERT INTO users (username, qq_openid, nickname, avatar, login_type, status, password) 
+         VALUES (?, ?, ?, ?, 'qq', 'active', '')`,
+        [username, qqOpenid, nickname, avatar]
+      );
+      
+      userId = result.insertId;
+    }
+    
+    const token = generateToken({ id: userId, username: username || `user_${userId}` });
+    
+    return success(res, {
+      user: { id: userId, username, nickname, avatar },
+      token
+    }, existingUsers.length === 0 ? '注册成功' : '登录成功');
+    
+  } catch (err) {
+    console.error('QQ登录失败:', err);
+    return error(res, 'QQ登录失败', 500);
+  }
+}
+
 module.exports = {
   register,
   login,
   logout,
   refreshToken,
-  verifyTokenValidity
+  verifyTokenValidity,
+  wechatLogin,
+  qqLogin
 };
 

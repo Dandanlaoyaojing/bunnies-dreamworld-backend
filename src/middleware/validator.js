@@ -43,18 +43,18 @@ function validatePhone(phone) {
 }
 
 /**
- * 验证用户名格式（4-20位字母数字下划线）
+ * 验证用户名格式（2-50位任意字符）
  */
 function validateUsername(username) {
-  const usernameRegex = /^[a-zA-Z0-9_]{4,20}$/;
-  return usernameRegex.test(username);
+  // 取消格式限制，只验证长度
+  return username && username.length >= 2 && username.length <= 50;
 }
 
 /**
- * 验证密码强度（6-20位）
+ * 验证密码强度（6-50位）
  */
 function validatePassword(password) {
-  return password && password.length >= 6 && password.length <= 20;
+  return password && password.length >= 6 && password.length <= 50;
 }
 
 /**
