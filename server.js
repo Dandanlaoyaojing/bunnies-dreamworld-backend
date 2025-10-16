@@ -59,7 +59,9 @@ app.get('/api/v1/system/version', (req, res) => {
         authentication: true,
         fileUpload: true,
         ai: true,
-        cloudSync: true
+        cloudSync: true,
+        groupCollaboration: true,
+        knowledgeMapFusion: true
       }
     }
   });
@@ -77,6 +79,15 @@ try {
   const draftRoutes = require('./src/routes/draft');
   const syncRoutes = require('./src/routes/sync');
   const systemRoutes = require('./src/routes/system');
+  
+  // 新增路由模块
+  const favoriteRoutes = require('./src/routes/favorite');
+  const knowledgeMapRoutes = require('./src/routes/knowledge-map');
+  const backupRoutes = require('./src/routes/backup');
+  
+  // 组群协作路由模块
+  const groupsRoutes = require('./src/routes/groups');
+  const groupFusionRoutes = require('./src/routes/group-fusion');
 
   // 注册路由
   app.use('/api/v1/auth', authRoutes);
@@ -89,6 +100,15 @@ try {
   app.use('/api/v1/drafts', draftRoutes);
   app.use('/api/v1/sync', syncRoutes);
   app.use('/api/v1', systemRoutes);
+  
+  // 注册新增路由
+  app.use('/api/v1/favorites', favoriteRoutes);
+  app.use('/api/v1/knowledge-map', knowledgeMapRoutes);
+  app.use('/api/v1/backup', backupRoutes);
+  
+  // 注册组群协作路由
+  app.use('/api/v1/groups', groupsRoutes);
+  app.use('/api/v1/groups', groupFusionRoutes);
   
   console.log('✅ 所有路由模块加载成功');
 } catch (err) {
