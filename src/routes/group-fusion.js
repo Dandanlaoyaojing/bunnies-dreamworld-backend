@@ -901,10 +901,8 @@ async function performFusion(sourceNodes, targetNodes, fusionType, minRelation) 
       case 'smart':
         return await smartFusion(sourceNodes, targetNodes, minRelation);
       case 'ai_smart':
-        // 使用AI增强的智能融合
-        const AIFusionService = require('../utils/aiFusionService');
-        const aiService = new AIFusionService();
-        return await aiService.aiSmartFusion(sourceNodes, targetNodes, { minRelation });
+        // AI智能融合功能已移除，回退到智能融合
+        return await smartFusion(sourceNodes, targetNodes, minRelation);
       case 'merge':
         return await mergeFusion(sourceNodes, targetNodes);
       case 'add':

@@ -376,7 +376,7 @@ router.delete('/relations/:id', async (req, res) => {
   }
 });
 
-// AI分析生成知识图谱
+// 知识图谱分析生成（使用本地算法，非AI）
 router.post('/analyze', async (req, res) => {
   try {
     const userId = req.user.id;
@@ -386,7 +386,7 @@ router.post('/analyze', async (req, res) => {
       return error(res, '请提供笔记数据', 400);
     }
     
-    // 分析笔记中的标签关联
+    // 分析笔记中的标签关联（本地算法）
     const tagAnalysis = analyzeTagRelations(notes, minRelation);
     
     // 生成知识图谱节点
@@ -405,10 +405,10 @@ router.post('/analyze', async (req, res) => {
         min_relation: minRelation,
         max_level: maxLevel
       }
-    }, 'AI分析生成知识图谱成功');
+    }, '知识图谱分析生成成功');
   } catch (err) {
-    console.error('AI分析生成知识图谱失败:', err);
-    return error(res, 'AI分析生成知识图谱失败', 500);
+    console.error('知识图谱分析生成失败:', err);
+    return error(res, '知识图谱分析生成失败', 500);
   }
 });
 

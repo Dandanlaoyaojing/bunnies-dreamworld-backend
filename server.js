@@ -88,6 +88,12 @@ try {
   // 组群协作路由模块
   const groupsRoutes = require('./src/routes/groups');
   const groupFusionRoutes = require('./src/routes/group-fusion');
+  
+  // AI增强功能路由模块
+  const aiRoutes = require('./src/routes/ai');
+  
+  // 通知系统路由模块
+  const notificationRoutes = require('./src/routes/notifications');
 
   // 注册路由
   app.use('/api/v1/auth', authRoutes);
@@ -109,6 +115,12 @@ try {
   // 注册组群协作路由
   app.use('/api/v1/groups', groupsRoutes);
   app.use('/api/v1/groups', groupFusionRoutes);
+  
+  // 注册AI增强功能路由
+  app.use('/api/v1/ai', aiRoutes);
+  
+  // 注册通知系统路由
+  app.use('/api/v1/notifications', notificationRoutes);
   
   console.log('✅ 所有路由模块加载成功');
 } catch (err) {
