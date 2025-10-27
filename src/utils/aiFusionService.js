@@ -3,8 +3,16 @@ const axios = require('axios');
 
 class AIFusionService {
   constructor() {
-    this.apiKey = process.env.OPENAI_API_KEY || '';
-    this.baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    // 使用 DeepSeek API
+    this.apiKey = process.env.DEEPSEEK_API_KEY || '';
+    this.baseURL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
+    this.model = process.env.AI_MODEL || 'deepseek-chat';
+    
+    if (!this.apiKey) {
+      console.warn('⚠️ DeepSeek API密钥未配置，AI功能将无法使用');
+    } else {
+      console.log(`✅ DeepSeek AI服务已启用: ${this.model} @ ${this.baseURL}`);
+    }
   }
 
   // AI智能融合算法
@@ -13,7 +21,7 @@ class AIFusionService {
       const prompt = this.buildFusionPrompt(sourceNodes, targetNodes, options);
       
       const response = await axios.post(`${this.baseURL}/chat/completions`, {
-        model: 'gpt-3.5-turbo',
+        model: this.model,
         messages: [
           {
             role: 'system',
@@ -129,7 +137,7 @@ ${JSON.stringify(targetNodes, null, 2)}
 `;
 
       const response = await axios.post(`${this.baseURL}/chat/completions`, {
-        model: 'gpt-3.5-turbo',
+        model: this.model,
         messages: [
           {
             role: 'user',
@@ -168,7 +176,7 @@ ${JSON.stringify(targetNodes, null, 2)}
 `;
 
       const response = await axios.post(`${this.baseURL}/chat/completions`, {
-        model: 'gpt-3.5-turbo',
+        model: this.model,
         messages: [
           {
             role: 'user',
@@ -191,6 +199,49 @@ ${JSON.stringify(targetNodes, null, 2)}
     } catch (error) {
       console.error('AI分类建议失败:', error);
       return 'knowledge'; // 默认分类
+    }
+  }
+
+  // 通用AI调用接口
+  async callAIAPI(prompt, options = {}) {
+    try {
+      const {
+        temperature = 0.7,
+        maxTokens = 1000,
+        systemPrompt = null
+      } = options;
+
+      const messages = [];
+      
+      if (systemPrompt) {
+        messages.push({
+          role: 'system',
+          content: systemPrompt
+        });
+      }
+      
+      messages.push({
+        role: 'user',
+        content: prompt
+      });
+
+      const response = await axios.post(`${this.baseURL}/chat/completions`, {
+        model: this.model,
+        messages,
+        temperature,
+        max_tokens: maxTokens
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = response.data.choices[0].message.content.trim();
+      return { result };
+    } catch (error) {
+      console.error('AI调用失败:', error.message);
+      throw error;
     }
   }
 }

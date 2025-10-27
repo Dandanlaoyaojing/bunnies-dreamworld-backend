@@ -901,10 +901,20 @@ async function performFusion(sourceNodes, targetNodes, fusionType, minRelation) 
       case 'smart':
         return await smartFusion(sourceNodes, targetNodes, minRelation);
       case 'ai_smart':
-        // 使用AI增强的智能融合
-        const AIFusionService = require('../utils/aiFusionService');
-        const aiService = new AIFusionService();
-        return await aiService.aiSmartFusion(sourceNodes, targetNodes, { minRelation });
+        // 使用AI增强的智能融合（延迟加载，避免启动时失败）
+        try {
+          const AIFusionService = require('../utils/aiFusionService');
+          const aiService = new AIFusionService();
+          // 检查是否有API密钥
+          if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === '') {
+            console.warn('⚠️ OPENAI_API_KEY未配置，回退到普通智能融合');
+            return await smartFusion(sourceNodes, targetNodes, minRelation);
+          }
+          return await aiService.aiSmartFusion(sourceNodes, targetNodes, { minRelation });
+        } catch (err) {
+          console.error('AI融合失败，回退到智能融合:', err.message);
+          return await smartFusion(sourceNodes, targetNodes, minRelation);
+        }
       case 'merge':
         return await mergeFusion(sourceNodes, targetNodes);
       case 'add':
