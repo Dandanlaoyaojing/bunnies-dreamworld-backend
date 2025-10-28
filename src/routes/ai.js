@@ -43,40 +43,66 @@ router.post('/generate-tags', async (req, res) => {
         const tagsStr = response.result;
         console.log('✅ AI返回结果:', tagsStr);
         
-        // 清理AI返回的文本，提取标签
-        let cleanedText = tagsStr
-          .replace(/标签[:：]/g, '')  // 移除"标签:"前缀
-          .replace(/^[\s\n]*[-•·]\s*/gm, '') // 移除列表符号
-          .replace(/\n/g, ',') // 换行改为逗号
-          .replace(/，/g, ',') // 中文逗号改为英文逗号
-          .trim();
+        // 改进的标签提取逻辑
+        let aiTags = [];
         
-        const aiTags = cleanedText
-          .split(',')
-          .map(t => t.trim())
-          .filter(t => t.length > 0 && !t.includes('已生成'))
-          .slice(0, 10); // 最多返回10个标签
+        // 方法1: 提取 **标签** 格式的标签
+        const boldTags = tagsStr.match(/\*\*([^*]+)\*\*/g);
+        if (boldTags) {
+          aiTags = aiTags.concat(boldTags.map(tag => tag.replace(/\*\*/g, '').trim()));
+        }
+        
+        // 方法2: 提取数字列表格式的标签 (1. 标签名)
+        const numberedTags = tagsStr.match(/\d+\.\s*\*\*([^*]+)\*\*/g);
+        if (numberedTags) {
+          aiTags = aiTags.concat(numberedTags.map(tag => tag.replace(/\d+\.\s*\*\*/g, '').replace(/\*\*/g, '').trim()));
+        }
+        
+        // 方法3: 如果上面方法都没找到，使用原来的方法
+        if (aiTags.length === 0) {
+          let cleanedText = tagsStr
+            .replace(/标签[:：]/g, '')  // 移除"标签:"前缀
+            .replace(/^[\s\n]*[-•·]\s*/gm, '') // 移除列表符号
+            .replace(/\n/g, ',') // 换行改为逗号
+            .replace(/，/g, ',') // 中文逗号改为英文逗号
+            .trim();
+          
+          aiTags = cleanedText
+            .split(',')
+            .map(t => t.trim())
+            .filter(t => t.length > 0 && !t.includes('已生成'))
+            .slice(0, 10); // 最多返回10个标签
+        }
+        
+        // 去重并限制数量
+        aiTags = Array.from(new Set(aiTags)).slice(0, 10);
         
         if (aiTags.length > 0) {
-          // 从原文提取关键词作为标签
-          const contentTags = extractKeywordsFromContent(content, '');
-          console.log('📄 从原文提取的标签:', contentTags);
-          
-          // 合并标签：一半来自原文，一半来自AI
-          const totalTags = Math.min(6, aiTags.length + contentTags.length); // 最多6个标签
-          const contentCount = Math.floor(totalTags / 2); // 原文标签数量
-          const aiCount = totalTags - contentCount; // AI标签数量
-          
-          const combinedTags = [
-            ...contentTags.slice(0, contentCount),
-            ...aiTags.slice(0, aiCount)
-          ];
-          
-          // 去重
-          const uniqueTags = Array.from(new Set(combinedTags));
-          
-          console.log('🎯 成功生成混合标签:', uniqueTags);
-          return success(res, { tags: uniqueTags }, 'AI标签生成成功');
+          // 直接使用AI生成的标签，不再混合原文标签
+          console.log('🎯 成功生成AI标签:', aiTags);
+          return success(res, { 
+            tags: aiTags,
+            generatedTags: aiTags,
+            tagList: aiTags,
+            result: aiTags,
+            data: aiTags,
+            labels: aiTags,
+            keywords: aiTags,
+            tagArray: aiTags,
+            tagData: aiTags,
+            tagResult: aiTags,
+            aiTags: aiTags,
+            smartTags: aiTags,
+            tagLabels: aiTags,
+            responseData: aiTags,
+            apiResult: aiTags,
+            tagResponse: aiTags,
+            labelData: aiTags,
+            tagInfo: aiTags,
+            labelInfo: aiTags,
+            tagDetails: aiTags,
+            labelDetails: aiTags
+          }, 'AI标签生成成功');
         }
       }
       
@@ -131,40 +157,66 @@ router.post('/test-generate-tags', async (req, res) => {
         const tagsStr = response.result;
         console.log('✅ AI返回结果:', tagsStr);
         
-        // 清理AI返回的文本，提取标签
-        let cleanedText = tagsStr
-          .replace(/标签[:：]/g, '')  // 移除"标签:"前缀
-          .replace(/^[\s\n]*[-•·]\s*/gm, '') // 移除列表符号
-          .replace(/\n/g, ',') // 换行改为逗号
-          .replace(/，/g, ',') // 中文逗号改为英文逗号
-          .trim();
+        // 改进的标签提取逻辑
+        let aiTags = [];
         
-        const aiTags = cleanedText
-          .split(',')
-          .map(t => t.trim())
-          .filter(t => t.length > 0 && !t.includes('已生成'))
-          .slice(0, 10); // 最多返回10个标签
+        // 方法1: 提取 **标签** 格式的标签
+        const boldTags = tagsStr.match(/\*\*([^*]+)\*\*/g);
+        if (boldTags) {
+          aiTags = aiTags.concat(boldTags.map(tag => tag.replace(/\*\*/g, '').trim()));
+        }
+        
+        // 方法2: 提取数字列表格式的标签 (1. 标签名)
+        const numberedTags = tagsStr.match(/\d+\.\s*\*\*([^*]+)\*\*/g);
+        if (numberedTags) {
+          aiTags = aiTags.concat(numberedTags.map(tag => tag.replace(/\d+\.\s*\*\*/g, '').replace(/\*\*/g, '').trim()));
+        }
+        
+        // 方法3: 如果上面方法都没找到，使用原来的方法
+        if (aiTags.length === 0) {
+          let cleanedText = tagsStr
+            .replace(/标签[:：]/g, '')  // 移除"标签:"前缀
+            .replace(/^[\s\n]*[-•·]\s*/gm, '') // 移除列表符号
+            .replace(/\n/g, ',') // 换行改为逗号
+            .replace(/，/g, ',') // 中文逗号改为英文逗号
+            .trim();
+          
+          aiTags = cleanedText
+            .split(',')
+            .map(t => t.trim())
+            .filter(t => t.length > 0 && !t.includes('已生成'))
+            .slice(0, 10); // 最多返回10个标签
+        }
+        
+        // 去重并限制数量
+        aiTags = Array.from(new Set(aiTags)).slice(0, 10);
         
         if (aiTags.length > 0) {
-          // 从原文提取关键词作为标签
-          const contentTags = extractKeywordsFromContent(content, title);
-          console.log('📄 从原文提取的标签:', contentTags);
-          
-          // 合并标签：一半来自原文，一半来自AI
-          const totalTags = Math.min(6, aiTags.length + contentTags.length); // 最多6个标签
-          const contentCount = Math.floor(totalTags / 2); // 原文标签数量
-          const aiCount = totalTags - contentCount; // AI标签数量
-          
-          const combinedTags = [
-            ...contentTags.slice(0, contentCount),
-            ...aiTags.slice(0, aiCount)
-          ];
-          
-          // 去重
-          const uniqueTags = Array.from(new Set(combinedTags));
-          
-          console.log('🎯 成功生成混合标签:', uniqueTags);
-          return success(res, { tags: uniqueTags }, 'AI标签生成成功');
+          // 直接使用AI生成的标签，不再混合原文标签
+          console.log('🎯 成功生成AI标签:', aiTags);
+          return success(res, { 
+            tags: aiTags,
+            generatedTags: aiTags,
+            tagList: aiTags,
+            result: aiTags,
+            data: aiTags,
+            labels: aiTags,
+            keywords: aiTags,
+            tagArray: aiTags,
+            tagData: aiTags,
+            tagResult: aiTags,
+            aiTags: aiTags,
+            smartTags: aiTags,
+            tagLabels: aiTags,
+            responseData: aiTags,
+            apiResult: aiTags,
+            tagResponse: aiTags,
+            labelData: aiTags,
+            tagInfo: aiTags,
+            labelInfo: aiTags,
+            tagDetails: aiTags,
+            labelDetails: aiTags
+          }, 'AI标签生成成功');
         }
       }
       
@@ -299,7 +351,17 @@ function generateTagsLocally(content, title, res) {
   
   console.log('🎲 使用本地算法生成混合标签:', uniqueTags);
   
-  return success(res, { tags: uniqueTags }, '使用本地算法生成标签');
+  return success(res, { 
+    tags: uniqueTags,
+    generatedTags: uniqueTags,
+    tagList: uniqueTags,
+    result: uniqueTags,
+    data: uniqueTags,
+    labels: uniqueTags,
+    keywords: uniqueTags,
+    tagArray: uniqueTags,
+    generatedLabels: uniqueTags
+  }, '使用本地算法生成标签');
 }
 
 module.exports = router;
