@@ -36,11 +36,13 @@ async function getNotes(req, res) {
        FROM notes n 
        LEFT JOIN note_tags nt ON n.id = nt.note_id 
        LEFT JOIN tags t ON nt.tag_id = t.id 
-       WHERE ${whereClause.replace('user_id = ?', 'n.user_id = ?')} 
+       WHERE n.user_id = ? AND n.is_deleted = false 
+       ${category ? 'AND n.category = ?' : ''}
+       ${favorite === 'true' ? 'AND n.is_favorite = true' : ''}
        GROUP BY n.id
        ORDER BY n.updated_at DESC 
        LIMIT ? OFFSET ?`,
-      [...params, parseInt(limit), parseInt(offset)]
+      category ? [userId, category, parseInt(limit), parseInt(offset)] : [userId, parseInt(limit), parseInt(offset)]
     );
     
     // 处理标签数据
@@ -50,8 +52,11 @@ async function getNotes(req, res) {
     
     // 查询总数
     const [countResult] = await pool.query(
-      `SELECT COUNT(*) as total FROM notes WHERE ${whereClause}`,
-      params
+      `SELECT COUNT(*) as total FROM notes n 
+       WHERE n.user_id = ? AND n.is_deleted = false 
+       ${category ? 'AND n.category = ?' : ''}
+       ${favorite === 'true' ? 'AND n.is_favorite = true' : ''}`,
+      category ? [userId, category] : [userId]
     );
     
     return success(res, {
