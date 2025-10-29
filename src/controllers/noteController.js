@@ -28,15 +28,25 @@ async function getNotes(req, res) {
     
     const whereClause = whereConditions.join(' AND ');
     
-    // 查询笔记列表
+    // 查询笔记列表（包含标签信息）
     const [notes] = await pool.query(
-      `SELECT id, title, content, category, is_favorite, word_count, created_at, updated_at 
-       FROM notes 
-       WHERE ${whereClause} 
-       ORDER BY updated_at DESC 
+      `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count, 
+              n.created_at, n.updated_at, n.source, n.url, n.category_tag,
+              GROUP_CONCAT(t.name) as tags
+       FROM notes n 
+       LEFT JOIN note_tags nt ON n.id = nt.note_id 
+       LEFT JOIN tags t ON nt.tag_id = t.id 
+       WHERE ${whereClause.replace('user_id = ?', 'n.user_id = ?')} 
+       GROUP BY n.id
+       ORDER BY n.updated_at DESC 
        LIMIT ? OFFSET ?`,
       [...params, parseInt(limit), parseInt(offset)]
     );
+    
+    // 处理标签数据
+    notes.forEach(note => {
+      note.tags = note.tags ? note.tags.split(',') : [];
+    });
     
     // 查询总数
     const [countResult] = await pool.query(
@@ -101,7 +111,7 @@ async function getNoteById(req, res) {
 async function createNote(req, res) {
   try {
     const userId = req.user.id;
-    const { title, content, category = 'knowledge', tags = [] } = req.body;
+    const { title, content, category = 'knowledge', tags = [], source, url, category_tag } = req.body;
     
     if (!title || !content) {
       return error(res, '标题和内容不能为空');
@@ -114,10 +124,10 @@ async function createNote(req, res) {
     const sanitizedTitle = sanitizeHtml(title);
     const sanitizedContent = sanitizeHtml(content);
     
-    // 插入笔记
+    // 插入笔记（包含新字段）
     const [result] = await pool.query(
-      'INSERT INTO notes (user_id, title, content, category, word_count) VALUES (?, ?, ?, ?, ?)',
-      [userId, sanitizedTitle, sanitizedContent, category, wordCount]
+      'INSERT INTO notes (user_id, title, content, category, word_count, source, url, category_tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [userId, sanitizedTitle, sanitizedContent, category, wordCount, source || null, url || null, category_tag || null]
     );
     
     const noteId = result.insertId;
@@ -149,7 +159,7 @@ async function updateNote(req, res) {
   try {
     const userId = req.user.id;
     const noteId = req.params.id;
-    const { title, content, category, tags } = req.body;
+    const { title, content, category, tags, source, url, category_tag } = req.body;
     
     // 验证笔记所有权
     const [notes] = await pool.query(
@@ -182,6 +192,21 @@ async function updateNote(req, res) {
     if (category) {
       updates.push('category = ?');
       values.push(category);
+    }
+    
+    if (source !== undefined) {
+      updates.push('source = ?');
+      values.push(source || null);
+    }
+    
+    if (url !== undefined) {
+      updates.push('url = ?');
+      values.push(url || null);
+    }
+    
+    if (category_tag !== undefined) {
+      updates.push('category_tag = ?');
+      values.push(category_tag || null);
     }
     
     if (updates.length > 0) {
