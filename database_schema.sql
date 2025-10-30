@@ -328,7 +328,7 @@ CREATE TABLE IF NOT EXISTS user_statistics (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户统计数据表';
 
 -- 18. 组群表
-CREATE TABLE IF NOT EXISTS groups (
+CREATE TABLE IF NOT EXISTS `groups` (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(100) NOT NULL COMMENT '组群名称',
   description TEXT DEFAULT NULL COMMENT '组群描述',
@@ -358,7 +358,7 @@ CREATE TABLE IF NOT EXISTS group_members (
   joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
   last_active_at TIMESTAMP NULL COMMENT '最后活跃时间',
   status ENUM('active', 'inactive', 'kicked') DEFAULT 'active' COMMENT '成员状态',
-  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   UNIQUE KEY unique_group_user (group_id, user_id),
   INDEX idx_group_id (group_id),
@@ -380,7 +380,7 @@ CREATE TABLE IF NOT EXISTS group_fusions (
   status ENUM('pending', 'processing', 'completed', 'failed') DEFAULT 'pending' COMMENT '融合状态',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   completed_at TIMESTAMP NULL COMMENT '完成时间',
-  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
   FOREIGN KEY (initiator_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_group_id (group_id),
   INDEX idx_initiator_id (initiator_id),
@@ -407,7 +407,7 @@ CREATE TABLE IF NOT EXISTS shared_nodes (
   created_by INT NOT NULL COMMENT '创建者用户ID',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_group_id (group_id),
   INDEX idx_created_by (created_by),
@@ -426,7 +426,7 @@ CREATE TABLE IF NOT EXISTS shared_relations (
   strength FLOAT DEFAULT 0.5 COMMENT '关联强度(0-1)',
   contributor_count INT DEFAULT 1 COMMENT '贡献者数量',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
   FOREIGN KEY (source_node_id) REFERENCES shared_nodes(id) ON DELETE CASCADE,
   FOREIGN KEY (target_node_id) REFERENCES shared_nodes(id) ON DELETE CASCADE,
   UNIQUE KEY unique_shared_relation (source_node_id, target_node_id),
@@ -467,7 +467,7 @@ CREATE TABLE IF NOT EXISTS group_invitations (
   expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   responded_at TIMESTAMP NULL COMMENT '响应时间',
-  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+  FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
   FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (invitee_id) REFERENCES users(id) ON DELETE CASCADE,
   UNIQUE KEY unique_invitation_code (invitation_code),

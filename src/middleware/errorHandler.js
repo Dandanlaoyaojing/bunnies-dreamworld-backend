@@ -6,7 +6,10 @@
 function notFound(req, res, next) {
   res.status(404).json({
     success: false,
-    message: `接口不存在: ${req.method} ${req.url}`
+    message: `接口不存在: ${req.method} ${req.url}`,
+    hint: '请检查 API 路径是否正确，或查看根路径 "/" 获取可用接口列表',
+    apiPrefix: '/api/v1',
+    timestamp: new Date().toISOString()
   });
 }
 

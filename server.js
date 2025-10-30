@@ -34,7 +34,26 @@ app.use((req, res, next) => {
 
 // ===== API路由 =====
 
-// 健康检查（简单路由，不需要导入）
+// 根路径 - 欢迎页面
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: '欢迎使用小兔的梦幻世界笔记本 API',
+    data: {
+      apiPrefix: '/api/v1',
+      version: '1.0.0',
+      endpoints: {
+        health: '/api/v1/health',
+        auth: '/api/v1/auth',
+        notes: '/api/v1/notes',
+        user: '/api/v1/user'
+      },
+      timestamp: new Date().toISOString()
+    }
+  });
+});
+
+// 健康检查 - v1版本
 app.get('/api/v1/health', (req, res) => {
   res.json({
     success: true,
@@ -43,6 +62,20 @@ app.get('/api/v1/health', (req, res) => {
       status: 'ok',
       timestamp: new Date().toISOString(),
       version: '1.0.0'
+    }
+  });
+});
+
+// 健康检查 - 兼容旧版本路径
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: '服务器运行正常',
+    data: {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      notice: '建议使用 /api/v1/health'
     }
   });
 });

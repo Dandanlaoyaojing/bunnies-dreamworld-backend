@@ -22,7 +22,14 @@ router.get('/by-tag/:tag', noteController.getNotesByTag);
 // 批量删除笔记
 router.post('/batch-delete', noteController.batchDeleteNotes);
 
-// 获取单条笔记详情
+// 回收站相关路由（必须在/:id之前，避免被/:id路由拦截）
+router.get('/trash', noteController.getTrashNotes);
+router.post('/trash/:id/restore', noteController.restoreNote);
+router.delete('/trash/:id', noteController.permanentDeleteNote);
+router.delete('/trash', noteController.emptyTrash);
+router.post('/trash/cleanup', noteController.cleanupExpiredNotes);
+
+// 获取单条笔记详情（放在最后，避免拦截其他路由）
 router.get('/:id', noteController.getNoteById);
 
 // 创建笔记
@@ -49,12 +56,6 @@ router.delete('/:id/favorite', noteController.unfavoriteNote);
 // 获取收藏列表（移到单独的路由文件中更好）
 // 但为了方便，这里也添加上
 router.get('/favorites/list', noteController.getFavorites);
-
-// 获取回收站列表
-router.get('/trash/list', noteController.getTrash);
-
-// 清空回收站
-router.post('/trash/clear', noteController.clearTrash);
 
 module.exports = router;
 
