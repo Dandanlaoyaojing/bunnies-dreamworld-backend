@@ -7,6 +7,84 @@ const { success, error } = require('../utils/response');
 
 router.use(authenticate);
 
+// ===== 本模块内辅助方法（与笔记控制器保持一致的返回形态） =====
+async function fetchNoteWithTags(noteId, userId) {
+  const [rows] = await pool.query(
+    `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count,
+            n.created_at, n.updated_at, n.source, n.url, n.category_tag,
+            GROUP_CONCAT(t.name) AS tags
+     FROM notes n
+     LEFT JOIN note_tags nt ON n.id = nt.note_id
+     LEFT JOIN tags t ON nt.tag_id = t.id
+     WHERE n.id = ? AND n.user_id = ?
+     GROUP BY n.id`,
+    [noteId, userId]
+  );
+  if (rows.length === 0) return null;
+  const note = rows[0];
+  note.tags = note.tags ? note.tags.split(',') : [];
+  return note;
+}
+
+async function fetchNotesListForUser(userId, query) {
+  const { page = 1, limit = 20, category, favorite } = query || {};
+  const offset = (page - 1) * limit;
+  const [notes] = await pool.query(
+    `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count,
+            n.created_at, n.updated_at, n.source, n.url, n.category_tag,
+            GROUP_CONCAT(t.name) AS tags
+     FROM notes n
+     LEFT JOIN note_tags nt ON n.id = nt.note_id
+     LEFT JOIN tags t ON nt.tag_id = t.id
+     WHERE n.user_id = ? AND n.is_deleted = false
+       ${category ? 'AND n.category = ?' : ''}
+       ${favorite === 'true' ? 'AND n.is_favorite = true' : ''}
+     GROUP BY n.id
+     ORDER BY n.updated_at DESC
+     LIMIT ? OFFSET ?`,
+    category
+      ? [userId, category, parseInt(limit), parseInt(offset)]
+      : [userId, parseInt(limit), parseInt(offset)]
+  );
+  notes.forEach(n => { n.tags = n.tags ? n.tags.split(',') : []; });
+  const [countResult] = await pool.query(
+    `SELECT COUNT(*) AS total FROM notes n
+     WHERE n.user_id = ? AND n.is_deleted = false
+       ${category ? 'AND n.category = ?' : ''}
+       ${favorite === 'true' ? 'AND n.is_favorite = true' : ''}`,
+    category ? [userId, category] : [userId]
+  );
+  return {
+    notes,
+    pagination: {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total: countResult[0].total,
+      totalPages: Math.ceil(countResult[0].total / limit)
+    }
+  };
+}
+
+async function attachTagsToNote(noteId, userId, tags) {
+  if (!Array.isArray(tags) || tags.length === 0) return;
+  for (const tagName of tags) {
+    if (!tagName) continue;
+    let [existingTags] = await pool.query(
+      'SELECT id FROM tags WHERE user_id = ? AND name = ?',
+      [userId, tagName]
+    );
+    let tagId;
+    if (existingTags.length > 0) {
+      tagId = existingTags[0].id;
+      await pool.query('UPDATE tags SET use_count = use_count + 1 WHERE id = ?', [tagId]);
+    } else {
+      const [result] = await pool.query('INSERT INTO tags (user_id, name, use_count) VALUES (?, ?, 1)', [userId, tagName]);
+      tagId = result.insertId;
+    }
+    await pool.query('INSERT IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)', [noteId, tagId]);
+  }
+}
+
 // 获取草稿列表
 router.get('/', async (req, res) => {
   try {
@@ -226,19 +304,27 @@ router.post('/:id/publish', async (req, res) => {
     }
     
     const draft = drafts[0];
-    const tags = draft.tags ? JSON.parse(draft.tags) : [];
+    let tags = [];
+    if (draft.tags) {
+      try { tags = JSON.parse(draft.tags); } catch (e) { tags = []; }
+    }
     
     // 开始事务
     await pool.query('START TRANSACTION');
     
     try {
-      // 创建正式笔记
+      // 创建正式笔记（不写入tags列，项目使用 note_tags 维护标签）
       const [noteResult] = await pool.query(
-        `INSERT INTO notes (user_id, title, content, category, tags, word_count, is_favorite) 
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [userId, draft.title, draft.content, draft.category, JSON.stringify(tags), draft.word_count, false]
+        `INSERT INTO notes (user_id, title, content, category, word_count, is_favorite) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [userId, draft.title || '', draft.content || '', draft.category || 'knowledge', draft.word_count || 0, false]
       );
       
+      // 关联标签
+      if (tags && tags.length > 0) {
+        await attachTagsToNote(noteResult.insertId, userId, tags);
+      }
+
       // 删除草稿
       await pool.query(
         'DELETE FROM drafts WHERE id = ? AND user_id = ?',
@@ -246,11 +332,13 @@ router.post('/:id/publish', async (req, res) => {
       );
       
       await pool.query('COMMIT');
-      
-      return success(res, { 
-        noteId: noteResult.insertId,
-        draftId: draftId
-      }, '草稿发布成功');
+      // 权威返回：发布后的完整笔记 + 可选列表
+      const note = await fetchNoteWithTags(noteResult.insertId, userId);
+      let listPayload = null;
+      if (req.query.returnList === 'true') {
+        listPayload = await fetchNotesListForUser(userId, req.query);
+      }
+      return success(res, { note, draftId, ...(listPayload ? { list: listPayload } : {}) }, '草稿发布成功');
     } catch (transactionErr) {
       await pool.query('ROLLBACK');
       throw transactionErr;
@@ -292,18 +380,24 @@ router.post('/batch-publish', async (req, res) => {
         }
         
         const draft = drafts[0];
-        const tags = draft.tags ? JSON.parse(draft.tags) : [];
+        let tags = [];
+        if (draft.tags) {
+          try { tags = JSON.parse(draft.tags); } catch (e) { tags = []; }
+        }
         
         // 开始事务
         await pool.query('START TRANSACTION');
         
         try {
-          // 创建正式笔记
-          await pool.query(
-            `INSERT INTO notes (user_id, title, content, category, tags, word_count, is_favorite) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [userId, draft.title, draft.content, draft.category, JSON.stringify(tags), draft.word_count, false]
+          // 创建正式笔记（不写入tags列）
+          const [noteResult] = await pool.query(
+            `INSERT INTO notes (user_id, title, content, category, word_count, is_favorite) 
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [userId, draft.title || '', draft.content || '', draft.category || 'knowledge', draft.word_count || 0, false]
           );
+          if (tags && tags.length > 0) {
+            await attachTagsToNote(noteResult.insertId, userId, tags);
+          }
           
           // 删除草稿
           await pool.query(
