@@ -5,20 +5,35 @@ const { sanitizeHtml } = require('../middleware/validator');
 
 // ===== 通用辅助方法（用于确保返回权威数据） =====
 async function fetchNoteWithTags(noteId, userId) {
+  // 查询笔记及其标签（包含 source 字段）
   const [rows] = await pool.query(
     `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count,
-            n.created_at, n.updated_at, n.source, n.url, n.category_tag,
-            GROUP_CONCAT(t.name) AS tags
+            n.created_at, n.updated_at, n.source, n.url, n.category_tag
      FROM notes n
-     LEFT JOIN note_tags nt ON n.id = nt.note_id
-     LEFT JOIN tags t ON nt.tag_id = t.id
-     WHERE n.id = ? AND n.user_id = ?
-     GROUP BY n.id`,
+     WHERE n.id = ? AND n.user_id = ?`,
     [noteId, userId]
   );
+  
   if (rows.length === 0) return null;
+  
   const note = rows[0];
-  note.tags = note.tags ? note.tags.split(',') : [];
+  
+  // 单独查询标签（包含 source 字段）
+  const [tagRows] = await pool.query(
+    `SELECT t.name, nt.source
+     FROM note_tags nt
+     JOIN tags t ON nt.tag_id = t.id
+     WHERE nt.note_id = ?
+     ORDER BY nt.created_at ASC`,
+    [noteId]
+  );
+  
+  // 将标签转换为对象数组格式
+  note.tags = tagRows.map(row => ({
+    name: row.name,
+    source: row.source || 'ai' // 兼容旧数据（如果没有 source，默认为 'ai'）
+  }));
+  
   return note;
 }
 
@@ -26,17 +41,14 @@ async function fetchNotesListForUser(userId, query) {
   const { page = 1, limit = 20, category, favorite } = query || {};
   const offset = (page - 1) * limit;
 
+  // 先查询笔记列表（不包含标签）
   const [notes] = await pool.query(
     `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count,
-            n.created_at, n.updated_at, n.source, n.url, n.category_tag,
-            GROUP_CONCAT(t.name) AS tags
+            n.created_at, n.updated_at, n.source, n.url, n.category_tag
      FROM notes n
-     LEFT JOIN note_tags nt ON n.id = nt.note_id
-     LEFT JOIN tags t ON nt.tag_id = t.id
      WHERE n.user_id = ? AND n.is_deleted = false
        ${category ? 'AND n.category = ?' : ''}
        ${favorite === 'true' ? 'AND n.is_favorite = true' : ''}
-     GROUP BY n.id
      ORDER BY n.updated_at DESC
      LIMIT ? OFFSET ?`,
     category
@@ -44,9 +56,23 @@ async function fetchNotesListForUser(userId, query) {
       : [userId, parseInt(limit), parseInt(offset)]
   );
 
-  notes.forEach(n => {
-    n.tags = n.tags ? n.tags.split(',') : [];
-  });
+  // 为每个笔记查询标签（包含 source 字段）
+  for (const note of notes) {
+    const [tagRows] = await pool.query(
+      `SELECT t.name, nt.source
+       FROM note_tags nt
+       JOIN tags t ON nt.tag_id = t.id
+       WHERE nt.note_id = ?
+       ORDER BY nt.created_at ASC`,
+      [note.id]
+    );
+    
+    // 转换为对象数组格式
+    note.tags = tagRows.map(row => ({
+      name: row.name,
+      source: row.source || 'ai' // 兼容旧数据
+    }));
+  }
 
   const [countResult] = await pool.query(
     `SELECT COUNT(*) AS total FROM notes n
@@ -120,27 +146,36 @@ async function getNotes(req, res) {
     
     const whereClause = whereConditions.join(' AND ');
     
-    // 查询笔记列表（包含标签信息）
+    // 先查询笔记列表（不包含标签）
     const [notes] = await pool.query(
       `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count, 
-              n.created_at, n.updated_at, n.source, n.url, n.category_tag,
-              GROUP_CONCAT(t.name) as tags
+              n.created_at, n.updated_at, n.source, n.url, n.category_tag
        FROM notes n 
-       LEFT JOIN note_tags nt ON n.id = nt.note_id 
-       LEFT JOIN tags t ON nt.tag_id = t.id 
        WHERE n.user_id = ? AND n.is_deleted = false 
        ${category ? 'AND n.category = ?' : ''}
        ${favorite === 'true' ? 'AND n.is_favorite = true' : ''}
-       GROUP BY n.id
        ORDER BY n.updated_at DESC 
        LIMIT ? OFFSET ?`,
       category ? [userId, category, parseInt(limit), parseInt(offset)] : [userId, parseInt(limit), parseInt(offset)]
     );
     
-    // 处理标签数据
-    notes.forEach(note => {
-      note.tags = note.tags ? note.tags.split(',') : [];
-    });
+    // 为每个笔记查询标签（包含 source 字段）
+    for (const note of notes) {
+      const [tagRows] = await pool.query(
+        `SELECT t.name, nt.source
+         FROM note_tags nt
+         JOIN tags t ON nt.tag_id = t.id
+         WHERE nt.note_id = ?
+         ORDER BY nt.created_at ASC`,
+        [note.id]
+      );
+      
+      // 转换为对象数组格式
+      note.tags = tagRows.map(row => ({
+        name: row.name,
+        source: row.source || 'ai' // 兼容旧数据
+      }));
+    }
     
     // 查询总数
     const [countResult] = await pool.query(
@@ -176,22 +211,12 @@ async function getNoteById(req, res) {
     const userId = req.user.id;
     const noteId = req.params.id;
     
-    const [notes] = await pool.query(
-      `SELECT n.*, GROUP_CONCAT(t.name) as tags 
-       FROM notes n 
-       LEFT JOIN note_tags nt ON n.id = nt.note_id 
-       LEFT JOIN tags t ON nt.tag_id = t.id 
-       WHERE n.id = ? AND n.user_id = ? 
-       GROUP BY n.id`,
-      [noteId, userId]
-    );
+    // 使用统一的 fetchNoteWithTags 函数，自动包含 source 字段
+    const note = await fetchNoteWithTags(noteId, userId);
     
-    if (notes.length === 0) {
-      return error(res, '笔记不存在', 404);
+    if (!note) {
+      return error(res, '笔记不存在或无权访问', 404);
     }
-    
-    const note = notes[0];
-    note.tags = note.tags ? note.tags.split(',') : [];
     
     return success(res, note, '获取笔记详情成功');
     
@@ -220,6 +245,42 @@ async function createNote(req, res) {
     // 清理HTML标签（XSS防护）
     const sanitizedTitle = sanitizeHtml(title);
     const sanitizedContent = sanitizeHtml(content);
+    
+    // 防重复检查：检查用户是否在最近10秒内创建了相同标题和内容的笔记
+    // 这样可以防止发布草稿时重复保存的问题
+    const [duplicateCheck] = await pool.query(
+      `SELECT id FROM notes 
+       WHERE user_id = ? 
+         AND title = ? 
+         AND content = ? 
+         AND category = ?
+         AND is_deleted = false
+         AND created_at > DATE_SUB(NOW(), INTERVAL 10 SECOND)
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, sanitizedTitle, sanitizedContent, category]
+    );
+    
+    if (duplicateCheck.length > 0) {
+      // 找到重复的笔记，直接返回已存在的笔记
+      console.log(`⚠️ 检测到重复创建笔记（用户ID: ${userId}, 标题: ${sanitizedTitle.substring(0, 20)}...），返回已存在的笔记`);
+      const existingNoteId = duplicateCheck[0].id;
+      const existingNote = await fetchNoteWithTags(existingNoteId, userId);
+      let listPayload = null;
+      if (req.query.returnList === 'true') {
+        listPayload = await fetchNotesListForUser(userId, req.query);
+      }
+      return success(
+        res,
+        {
+          note: existingNote,
+          isDuplicate: true,
+          ...(listPayload ? { list: listPayload } : {}),
+        },
+        '笔记已存在（防重复保存）',
+        200
+      );
+    }
     
     // 插入笔记（包含新字段）
     const [result] = await pool.query(
@@ -467,7 +528,14 @@ async function batchDeleteNotes(req, res) {
   }
 }
 
-// 旧的恢复函数已删除，使用新的回收站恢复功能
+/**
+ * 恢复已删除的笔记（已迁移到回收站机制）
+ * POST /api/v1/notes/:id/restore
+ * 注意：此路由保留用于向后兼容，实际应该使用 /api/v1/notes/trash/:id/restore
+ */
+async function restoreNote(req, res) {
+  return error(res, '请使用回收站恢复功能：POST /api/v1/notes/trash/:id/restore', 404);
+}
 
 /**
  * 永久删除笔记
@@ -521,6 +589,23 @@ async function searchNotes(req, res) {
       [userId, searchTerm, searchTerm, parseInt(limit), parseInt(offset)]
     );
     
+    // 为每个笔记查询标签（包含 source 字段）
+    for (const note of notes) {
+      const [tagRows] = await pool.query(
+        `SELECT t.name, nt.source
+         FROM note_tags nt
+         JOIN tags t ON nt.tag_id = t.id
+         WHERE nt.note_id = ?
+         ORDER BY nt.created_at ASC`,
+        [note.id]
+      );
+      
+      note.tags = tagRows.map(row => ({
+        name: row.name,
+        source: row.source || 'ai'
+      }));
+    }
+    
     const [countResult] = await pool.query(
       `SELECT COUNT(*) as total FROM notes 
        WHERE user_id = ? AND is_deleted = false 
@@ -563,6 +648,23 @@ async function getNotesByCategory(req, res) {
        LIMIT ? OFFSET ?`,
       [userId, category, parseInt(limit), parseInt(offset)]
     );
+    
+    // 为每个笔记查询标签（包含 source 字段）
+    for (const note of notes) {
+      const [tagRows] = await pool.query(
+        `SELECT t.name, nt.source
+         FROM note_tags nt
+         JOIN tags t ON nt.tag_id = t.id
+         WHERE nt.note_id = ?
+         ORDER BY nt.created_at ASC`,
+        [note.id]
+      );
+      
+      note.tags = tagRows.map(row => ({
+        name: row.name,
+        source: row.source || 'ai'
+      }));
+    }
     
     const [countResult] = await pool.query(
       'SELECT COUNT(*) as total FROM notes WHERE user_id = ? AND category = ? AND is_deleted = false',
@@ -607,6 +709,23 @@ async function getNotesByTag(req, res) {
        LIMIT ? OFFSET ?`,
       [userId, tagName, parseInt(limit), parseInt(offset)]
     );
+    
+    // 为每个笔记查询标签（包含 source 字段）
+    for (const note of notes) {
+      const [tagRows] = await pool.query(
+        `SELECT t.name, nt.source
+         FROM note_tags nt
+         JOIN tags t ON nt.tag_id = t.id
+         WHERE nt.note_id = ?
+         ORDER BY nt.created_at ASC`,
+        [note.id]
+      );
+      
+      note.tags = tagRows.map(row => ({
+        name: row.name,
+        source: row.source || 'ai'
+      }));
+    }
     
     return success(res, { notes, tag: tagName }, '获取标签笔记成功');
     
@@ -742,13 +861,50 @@ async function clearTrash(req, res) {
 // ===== 辅助函数 =====
 
 /**
- * 附加标签到笔记
+ * 规范化标签格式（兼容字符串和对象格式）
+ * @param {string|object} tag - 标签（字符串或对象）
+ * @returns {object} 规范化的标签对象 {name: string, source: 'manual'|'ai'|'origin'}
+ */
+function normalizeTag(tag) {
+  if (typeof tag === 'string') {
+    // 字符串格式：默认为 AI 生成
+    return {
+      name: tag.trim(),
+      source: 'ai'
+    };
+  } else if (typeof tag === 'object' && tag !== null) {
+    // 对象格式：提取 name 和 source
+    // source 可选值：'manual'（手动添加）、'ai'（AI生成）、'origin'（从笔记出处字段生成的）
+    const validSource = ['manual', 'ai', 'origin'].includes(tag.source) ? tag.source : 'ai';
+    return {
+      name: (tag.name || tag).trim(),
+      source: validSource
+    };
+  }
+  return null;
+}
+
+/**
+ * 附加标签到笔记（支持 source 字段）
  */
 async function attachTags(noteId, userId, tags) {
-  for (const tagName of tags) {
-    if (!tagName) continue;
+  if (!tags || !Array.isArray(tags) || tags.length === 0) {
+    return;
+  }
+  
+  for (const tag of tags) {
+    // 规范化标签格式（兼容字符串和对象）
+    const normalizedTag = normalizeTag(tag);
     
-    // 查找或创建标签
+    if (!normalizedTag || !normalizedTag.name) {
+      console.warn('⚠️ 跳过无效标签:', tag);
+      continue;
+    }
+    
+    const tagName = normalizedTag.name;
+    const tagSource = normalizedTag.source || 'ai'; // 默认为 AI
+    
+    // 查找或创建标签（标签名称全局唯一，source 在 note_tags 关联表中）
     let [existingTags] = await pool.query(
       'SELECT id FROM tags WHERE user_id = ? AND name = ?',
       [userId, tagName]
@@ -771,11 +927,16 @@ async function attachTags(noteId, userId, tags) {
       tagId = result.insertId;
     }
     
-    // 关联标签和笔记
+    // 关联标签和笔记（包含 source 字段）
+    // 使用 INSERT ... ON DUPLICATE KEY UPDATE 来处理重复插入
     await pool.query(
-      'INSERT IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)',
-      [noteId, tagId]
+      `INSERT INTO note_tags (note_id, tag_id, source) 
+       VALUES (?, ?, ?) 
+       ON DUPLICATE KEY UPDATE source = VALUES(source)`,
+      [noteId, tagId, tagSource]
     );
+    
+    console.log(`✅ 关联标签: ${tagName} (source: ${tagSource})`);
   }
 }
 
@@ -824,10 +985,10 @@ async function getTrashNotes(req, res) {
 }
 
 /**
- * 恢复笔记
+ * 从回收站恢复笔记
  * POST /api/v1/notes/trash/:id/restore
  */
-async function restoreNote(req, res) {
+async function restoreTrashNote(req, res) {
   const connection = await pool.getConnection();
   
   try {
@@ -895,10 +1056,10 @@ async function restoreNote(req, res) {
 }
 
 /**
- * 永久删除笔记
+ * 永久删除回收站中的笔记
  * DELETE /api/v1/notes/trash/:id
  */
-async function permanentDeleteNote(req, res) {
+async function permanentDeleteTrashNote(req, res) {
   try {
     const userId = req.user.id;
     const trashId = req.params.id;
@@ -997,8 +1158,8 @@ module.exports = {
   clearTrash,
   // 回收站相关功能
   getTrashNotes,
-  restoreNote,
-  permanentDeleteNote,
+  restoreTrashNote,
+  permanentDeleteTrashNote,
   emptyTrash,
   cleanupExpiredNotes
 };

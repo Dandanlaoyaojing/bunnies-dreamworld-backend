@@ -23,9 +23,11 @@ router.get('/by-tag/:tag', noteController.getNotesByTag);
 router.post('/batch-delete', noteController.batchDeleteNotes);
 
 // 回收站相关路由（必须在/:id之前，避免被/:id路由拦截）
+// 支持两种路径：/trash 和 /trash/list（向后兼容）
 router.get('/trash', noteController.getTrashNotes);
-router.post('/trash/:id/restore', noteController.restoreNote);
-router.delete('/trash/:id', noteController.permanentDeleteNote);
+router.get('/trash/list', noteController.getTrashNotes); // 兼容文档要求的路径
+router.post('/trash/:id/restore', noteController.restoreTrashNote);
+router.delete('/trash/:id', noteController.permanentDeleteTrashNote);
 router.delete('/trash', noteController.emptyTrash);
 router.post('/trash/cleanup', noteController.cleanupExpiredNotes);
 

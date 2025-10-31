@@ -11,42 +11,71 @@ router.use(authenticate);
 async function fetchNoteWithTags(noteId, userId) {
   const [rows] = await pool.query(
     `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count,
-            n.created_at, n.updated_at, n.source, n.url, n.category_tag,
-            GROUP_CONCAT(t.name) AS tags
+            n.created_at, n.updated_at, n.source, n.url, n.category_tag
      FROM notes n
-     LEFT JOIN note_tags nt ON n.id = nt.note_id
-     LEFT JOIN tags t ON nt.tag_id = t.id
-     WHERE n.id = ? AND n.user_id = ?
-     GROUP BY n.id`,
+     WHERE n.id = ? AND n.user_id = ?`,
     [noteId, userId]
   );
   if (rows.length === 0) return null;
+  
   const note = rows[0];
-  note.tags = note.tags ? note.tags.split(',') : [];
+  
+  // 单独查询标签（包含 source 字段）
+  const [tagRows] = await pool.query(
+    `SELECT t.name, nt.source
+     FROM note_tags nt
+     JOIN tags t ON nt.tag_id = t.id
+     WHERE nt.note_id = ?
+     ORDER BY nt.created_at ASC`,
+    [noteId]
+  );
+  
+  // 将标签转换为对象数组格式
+  note.tags = tagRows.map(row => ({
+    name: row.name,
+    source: row.source || 'ai' // 兼容旧数据
+  }));
+  
   return note;
 }
 
 async function fetchNotesListForUser(userId, query) {
   const { page = 1, limit = 20, category, favorite } = query || {};
   const offset = (page - 1) * limit;
+  
+  // 先查询笔记列表（不包含标签）
   const [notes] = await pool.query(
     `SELECT n.id, n.title, n.content, n.category, n.is_favorite, n.word_count,
-            n.created_at, n.updated_at, n.source, n.url, n.category_tag,
-            GROUP_CONCAT(t.name) AS tags
+            n.created_at, n.updated_at, n.source, n.url, n.category_tag
      FROM notes n
-     LEFT JOIN note_tags nt ON n.id = nt.note_id
-     LEFT JOIN tags t ON nt.tag_id = t.id
      WHERE n.user_id = ? AND n.is_deleted = false
        ${category ? 'AND n.category = ?' : ''}
        ${favorite === 'true' ? 'AND n.is_favorite = true' : ''}
-     GROUP BY n.id
      ORDER BY n.updated_at DESC
      LIMIT ? OFFSET ?`,
     category
       ? [userId, category, parseInt(limit), parseInt(offset)]
       : [userId, parseInt(limit), parseInt(offset)]
   );
-  notes.forEach(n => { n.tags = n.tags ? n.tags.split(',') : []; });
+  
+  // 为每个笔记查询标签（包含 source 字段）
+  for (const note of notes) {
+    const [tagRows] = await pool.query(
+      `SELECT t.name, nt.source
+       FROM note_tags nt
+       JOIN tags t ON nt.tag_id = t.id
+       WHERE nt.note_id = ?
+       ORDER BY nt.created_at ASC`,
+      [note.id]
+    );
+    
+    // 转换为对象数组格式
+    note.tags = tagRows.map(row => ({
+      name: row.name,
+      source: row.source || 'ai' // 兼容旧数据
+    }));
+  }
+  
   const [countResult] = await pool.query(
     `SELECT COUNT(*) AS total FROM notes n
      WHERE n.user_id = ? AND n.is_deleted = false
@@ -65,10 +94,38 @@ async function fetchNotesListForUser(userId, query) {
   };
 }
 
+/**
+ * 规范化标签格式（兼容字符串和对象格式）
+ */
+function normalizeTag(tag) {
+  if (typeof tag === 'string') {
+    return { name: tag.trim(), source: 'ai' };
+  } else if (typeof tag === 'object' && tag !== null) {
+    // source 可选值：'manual'（手动添加）、'ai'（AI生成）、'origin'（从笔记出处字段生成的）
+    const validSource = ['manual', 'ai', 'origin'].includes(tag.source) ? tag.source : 'ai';
+    return {
+      name: (tag.name || tag).trim(),
+      source: validSource
+    };
+  }
+  return null;
+}
+
 async function attachTagsToNote(noteId, userId, tags) {
   if (!Array.isArray(tags) || tags.length === 0) return;
-  for (const tagName of tags) {
-    if (!tagName) continue;
+  
+  for (const tag of tags) {
+    // 规范化标签格式（兼容字符串和对象）
+    const normalizedTag = normalizeTag(tag);
+    
+    if (!normalizedTag || !normalizedTag.name) {
+      console.warn('⚠️ 跳过无效标签:', tag);
+      continue;
+    }
+    
+    const tagName = normalizedTag.name;
+    const tagSource = normalizedTag.source || 'ai';
+    
     let [existingTags] = await pool.query(
       'SELECT id FROM tags WHERE user_id = ? AND name = ?',
       [userId, tagName]
@@ -81,7 +138,14 @@ async function attachTagsToNote(noteId, userId, tags) {
       const [result] = await pool.query('INSERT INTO tags (user_id, name, use_count) VALUES (?, ?, 1)', [userId, tagName]);
       tagId = result.insertId;
     }
-    await pool.query('INSERT IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)', [noteId, tagId]);
+    
+    // 关联标签和笔记（包含 source 字段）
+    await pool.query(
+      `INSERT INTO note_tags (note_id, tag_id, source) 
+       VALUES (?, ?, ?) 
+       ON DUPLICATE KEY UPDATE source = VALUES(source)`,
+      [noteId, tagId, tagSource]
+    );
   }
 }
 
@@ -90,6 +154,8 @@ router.get('/', async (req, res) => {
   try {
     const userId = req.user.id;
     const { category, sortBy = 'updated_at', sortOrder = 'DESC', page = 1, limit = 20 } = req.query;
+    
+    console.log(`📋 获取草稿列表: userId=${userId}, page=${page}, limit=${limit}, category=${category || 'all'}`);
     
     let query = 'SELECT * FROM drafts WHERE user_id = ?';
     const params = [userId];
@@ -124,6 +190,8 @@ router.get('/', async (req, res) => {
     const [countResult] = await pool.query(countQuery, countParams);
     const total = countResult[0].total;
     
+    console.log(`📋 草稿列表查询结果: userId=${userId}, 返回${drafts.length}条, 总数${total}条`);
+    
     // 处理草稿数据
     const processedDrafts = drafts.map(draft => ({
       ...draft,
@@ -133,6 +201,13 @@ router.get('/', async (req, res) => {
       updated_at_formatted: new Date(draft.updated_at).toLocaleString('zh-CN')
     }));
     
+    // 获取最新更新时间戳（用于前端判断是否需要刷新本地缓存）
+    const [latestRow] = await pool.query(
+      'SELECT MAX(updated_at) as latest_update FROM drafts WHERE user_id = ?',
+      [userId]
+    );
+    const cacheVersion = latestRow[0].latest_update ? new Date(latestRow[0].latest_update).getTime() : Date.now();
+    
     return success(res, {
       drafts: processedDrafts,
       pagination: {
@@ -140,7 +215,10 @@ router.get('/', async (req, res) => {
         limit: parseInt(limit),
         total,
         pages: Math.ceil(total / parseInt(limit))
-      }
+      },
+      // 添加缓存版本标识，前端可以对比本地缓存的版本号，决定是否刷新
+      cacheVersion: cacheVersion,
+      serverTime: Date.now()
     }, '获取草稿列表成功');
   } catch (err) {
     console.error('获取草稿列表失败:', err);
@@ -246,18 +324,47 @@ router.delete('/:id', async (req, res) => {
     const userId = req.user.id;
     const draftId = req.params.id;
     
+    console.log(`🗑️ 删除草稿请求: userId=${userId}, draftId=${draftId}`);
+    
+    // 先检查草稿是否存在且属于该用户
+    const [checkRows] = await pool.query(
+      'SELECT id FROM drafts WHERE id = ? AND user_id = ?',
+      [draftId, userId]
+    );
+    
+    if (checkRows.length === 0) {
+      console.log(`❌ 草稿不存在或无权限: draftId=${draftId}, userId=${userId}`);
+      return error(res, '草稿不存在或无权访问', 404);
+    }
+    
+    // 执行删除
     const [result] = await pool.query(
       'DELETE FROM drafts WHERE id = ? AND user_id = ?',
       [draftId, userId]
     );
     
+    console.log(`✅ 删除执行结果: affectedRows=${result.affectedRows}, draftId=${draftId}`);
+    
     if (result.affectedRows === 0) {
-      return error(res, '草稿不存在', 404);
+      console.log(`⚠️ 删除失败: affectedRows为0, draftId=${draftId}`);
+      return error(res, '草稿删除失败', 500);
     }
     
-    return success(res, null, '草稿删除成功');
+    // 查询删除后的剩余草稿总数（便于前端判断是否需要刷新）
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as total FROM drafts WHERE user_id = ?',
+      [userId]
+    );
+    const remainingTotal = countResult[0].total;
+    
+    console.log(`📊 删除后剩余草稿数: ${remainingTotal}`);
+    
+    return success(res, { 
+      deletedId: parseInt(draftId),
+      remainingTotal: parseInt(remainingTotal)
+    }, '草稿删除成功');
   } catch (err) {
-    console.error('删除草稿失败:', err);
+    console.error('❌ 删除草稿异常:', err);
     return error(res, '删除草稿失败', 500);
   }
 });
